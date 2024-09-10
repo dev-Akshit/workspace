@@ -1,6 +1,7 @@
 const {channelController, messageController, notificationController, userController} = require("../controllers");
 const {redisService} = require("../services");
 const {constants, utils} = require('../lib');
+const controllers = require("../controllers");
 const {redisKeys} = constants;
 
 module.exports = function(socket, io) {

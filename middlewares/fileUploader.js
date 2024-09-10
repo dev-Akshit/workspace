@@ -1,100 +1,137 @@
 
-const multer = require('multer');
+const stream = require('stream');
+const { formidable } = require('formidable');
 const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs');
 const aws = require('../config/awsBucket');
 const {s3} = aws;
 const {awsBucketName} = require('../config/configVars');
+const lib = require('../lib');
 
 const fileUploadPath  = path.join(__dirname, '../Public/uploads');
+const profileUploadPath = path.join(fileUploadPath, './profile');
+
 
 if(!fs.existsSync(fileUploadPath)) {
     fs.mkdirSync(fileUploadPath);
 }
 
+if (!fs.existsSync(profileUploadPath)) {
+    fs.mkdirSync(profileUploadPath);
+}
 
-const fileUpload = (uploadToCloud) => {
-    return (req, res, next) =>{
+const formidableConfig = {
+    cloud: {
+        fileWriteStreamHandler: (file, uploadPromiseArray) => {
+            const body = new stream.PassThrough();
+            const upload = s3.upload({
+                Bucket: awsBucketName,
+                Key: `${file.newFilename}`,
+                ContentType: `${file.mimetype}`,
+                Body: body
+            });
+            uploadPromiseArray.push(new Promise((resolve, reject) => {
+                upload.send((error, data) => {
+                    if (error) {
+                        return reject(error);
+                    }
+                    file.location = data.Location;
+                    resolve();
+                })
+            }))
+            return body;
+        }
+    },
+    local: {
+        fileWriteStreamHandler: (file, uploadPromiseArray) => {
+            const body = new stream.PassThrough();
+            const fileWriteStream = fs.createWriteStream(file.filepath); // Ensure the file path is correct
         
-        const fileNamePrefix = `${Date.now()}-${crypto.randomBytes(10).toString('hex')}-${req.session.userId}`;
+            body.pipe(fileWriteStream);
+        
+            uploadPromiseArray.push(new Promise((resolve, reject) => {
+                let isResolved = false;
+                fileWriteStream.on('finish', () => {
+                    file.location = `${lib.utils.hostUrl()}/uploads/${file.prefixLocation?`${file.prefixLocation}/`:''}${file.newFilename}`
+                    if (!isResolved) {
+                        isResolved = true;
+                        resolve();
+                    }
+                });
+        
+                fileWriteStream.on('error', (error) => {
+                    if (!isResolved) {
+                        isResolved = true;
+                        reject(error);
+                    }
+                });
+            }));
+            return body;
+        }
+    }
+}
 
-        if(uploadToCloud){
-            const uploader = multer({
-                storage: multer.memoryStorage(),
-                limits: {
-                    fileSize: 5 * 1024 * 1024,
+/**
+ * 
+ * @param {{uploadToCloud: boolean, prefixLocation?: string, extensionAllowed?: Array<RegExp>, maxFiles?: number }} uploadConfig 
+ * @returns 
+ */
+const fileUpload = (uploadConfig) => {
+    let { uploadToCloud, prefixLocation = '', extensionAllowed, maxFiles } = uploadConfig;
+    const handlerKey = (uploadToCloud)?'cloud':'local'
+    let basePath = '';
+    if (!uploadToCloud) {
+        basePath = `${fileUploadPath}/`;
+    }
+    return (req, res, next) => {
+        const uploadPromiseArray = [];
+        const form =  formidable({
+            allowEmptyFiles: false,
+            maxFileSize: 5 * 1024 * 1024,
+            multiples: true,
+            filename: (name, ext, part, form) => {
+                const extension = path.extname(part.originalFilename);
+                return `${name}-${Date.now()}${extension}`
+            },
+            filter: ((part) => {
+                if (!extensionAllowed?.length) {
+                    return true;
                 }
-            }).any()
-            return uploader(req, res, (err) => {
-                if (err != null) {
-                    console.log(err);
-                    return res.status(500).json({error: err?.message ?? err})
+                for (let extension of extensionAllowed) {
+                    if (extension.test(part.mimetype)) {
+                        return true;
+                    }
                 }
-                if(req.file){
-                    const extension = path.extname(req.file?.originalname);
-                    req.file.filename = `${fileNamePrefix}${extension}`;
-                    const params = {
-                        Bucket: awsBucketName,
-                        Body: req.file.buffer,
-                        Key: req.file.filename,
-                    };
-                    s3.upload(params, (err, data) => {
-                        if (err) {
-                            console.error(err);
-                            return res.status(500).json({error: err?.message ?? err});
-                        }
-                    });
-                }
-        
-                if(req.files?.length){
-                    req.files.forEach((element) => {
-                        const extension = path.extname(element?.originalname);
-                        element.filename = `${fileNamePrefix}${extension}`;
-                        const params = {
-                            Bucket: awsBucketName,
-                            Body: element.buffer,
-                            Key: element.filename,
-                        };
-                        s3.upload(params, (err, data) => {
-                            if (err) {
-                                console.error(err);
-                                return res.status(500).json({error: err?.message ?? err});
-                            }
-                        });
+                return false;
+            }),
+            uploadDir: `${basePath}${prefixLocation}`,
+            maxFiles: maxFiles ?? 20,
+            fileWriteStreamHandler: (file) => {
+                file.prefixLocation = prefixLocation;
+                const method = formidableConfig[handlerKey].fileWriteStreamHandler;
+                return method(file, uploadPromiseArray);
+            }
+        })
+        form.parse(req, (error, fields, files) => {
+            if (error) {
+                return res.status(500).json({error: error?.message ?? error});
+            }
+            Promise.all(uploadPromiseArray)
+            .then(() => {
+                req.body = fields;
+                req.files = [];
+                Object.values(files).forEach((files) => {
+                    files.forEach((file) => {
+                        req.files.push(file);
                     })
-                }
+                })
                 next();
-                
-            });
-        }
-        else {
-            const storage = multer.diskStorage({
-                destination: (req, file, cb) => {
-                    cb(null, fileUploadPath)
-                },
-                filename: (req, file , callback) => {
-                    const extension = path.extname(file.originalname);
-                    const fileName = `${fileNamePrefix}${extension}`;
-                    callback(null, fileName);
-                }
             })
-            const uploader = multer({
-                storage: storage,
-                limits: {
-                    fileSize: 5 * 1024 * 1024,
-                }
-            }).any()
-            return uploader(req, res, (err) => {
-                if (err != null) {
-                    console.log(err);
-                    return res.status(500).json({error: err?.message ?? err})
-                }
-                next();
+            .catch(() => {
+                return res.status(500).json({error: 'Something went wrong'});
             });
-        }
-
-        next();
+        });
     }
 }
 

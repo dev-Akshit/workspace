@@ -69,6 +69,18 @@ const CreateEmailFactory = (data, user, session) => {
             const emailData = libs.constants.emailContent[data.Type];
             return new EmailClass({data: data, emailData: emailData, user: user});
         }
+        case libs.constants.emailType.ChannelInvite: {
+            if (!data.token) throw new Error(libs.messages.errorMessage.varificationTokenNotPresent);
+            if (!user) throw new Error(libs.messages.errorMessage.userDataMissingEmailFactory);
+            const emailData = libs.constants.emailContent[data.Type];
+            return new EmailClass({data: data, emailData: emailData, user: user});
+        }
+        case libs.constants.emailType.UserAndChannelInvite: {
+            if (!data.token) throw new Error(libs.messages.errorMessage.varificationTokenNotPresent);
+            if (!user) throw new Error(libs.messages.errorMessage.userDataMissingEmailFactory);
+            const emailData = libs.constants.emailContent[data.Type];
+            return new EmailClass({data: data, emailData: emailData, user: user});
+        }
         default: {
             throw new Error(libs.messages.errorMessage.invalidEmailType)
         }

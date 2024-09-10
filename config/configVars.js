@@ -57,6 +57,9 @@ const configFromEnv = {
     awsPassword: process.env.AWS_PASSWORD,
     awsRegion: process.env.AWS_REGION,
     awsBucketName: process.env.AWS_BUCKET_NAME,
+    emailVerificationRequired: process.env.EMAIL_VERIFICATION_REQUIRED == 1,
+    createDefaultWorkspace: process.env.CREATE_DEFAULT_WORKSPACE == 1,
+    uploadToCloud: process.env.UPLOAD_TO_CLOUD == 1,
 }
 
 const config = Object.freeze({...baseConfig, ...configFromEnv});

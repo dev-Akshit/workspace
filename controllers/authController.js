@@ -6,6 +6,7 @@ const services = require("../services");
 const { userService } = require("../services")
 const libs = require('../lib');
 const { userModel } = require('../models');
+const config = require('../config/configVars');
 
 const createSessionObj = (user) => {
     const session = {};
@@ -85,9 +86,13 @@ const signup = async ({email, password, name}) => {
         if (userWithSameEmail[userModel.columnName.verification_token] == null) {
             throw new Error(`User with the same email already exists`);
         }
-        return userWithSameEmail;
+        const verificationToken = config.emailVerificationRequired ? crypto.randomBytes(40).toString('hex') : null;
+        const result = await userService.updateUserDB({
+            [userModel.columnName.verification_token]: verificationToken
+        }, ` WHERE ${userModel.columnName.id} = '${userWithSameEmail.id}'`);
+        return result?.[0];
     }
-    const verificationToken = process.env.NODE_ENV === 'local' ? null : crypto.randomBytes(40).toString('hex');
+    const verificationToken = config.emailVerificationRequired ? crypto.randomBytes(40).toString('hex') : null;
     console.log(`Verification Token For ${email} = ${verificationToken}`);
     const resultOfUserCreation = await userService.createUserDB(
         {

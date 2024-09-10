@@ -18,6 +18,7 @@ const notificationController = require('../controllers/notificationController');
 
 const redisService = require('../services/redisService');
 const userService = require('../services/userService');
+const user = require('../models/user');
 
 const getOneChannel = async (channelId) => {
     const q = `SELECT * FROM ${channelModel.tableName} WHERE ${channelModel.columnName.id} = '${channelId}'`;
@@ -269,7 +270,7 @@ const addUserToChannel = async (payload = {}) => {
 
             notificationController.emitUserNotifications({userIds: [userId]});
         }
-
+        io.to(workspaceId).emit('channelUserChange', {userIds: userId});
         return {msg: "Added"};
     } catch (error) {
         if ( ! isPrevTransaction ) {
@@ -762,11 +763,22 @@ const createChannel = async (payload) => {
         }
 
         if ( type == constants.channelTypes.privateType ) {
-            let userIds = [userId, ...userIdsToAdd];
+            let userIds = [];
+            if (userId > userIdsToAdd) {
+                userIds.push(userIdsToAdd);
+                userIds.push(userId);
+            } else {
+                userIds.push(userId);
+                userIds.push(userIdsToAdd);
+            }
             if ( userIds.length == 2 ) {
                 userIds.sort();
                 // TODO validate this
                 name = userIds.join('-');
+            }
+            const channel = await getChannelsByChannelName(name, workspaceId);
+            if (channel.length) {
+                return { channelId: channel[0][channelModel.columnName.id] , workspaceId: channel[0][channelModel.columnName.workspace_id]};
             }
         }
         
@@ -893,6 +905,7 @@ const listChannels = async (payload) => {
                 const {user1, user2} = channelObj;
                 const dmUserId = ( user1 == userId && user2 ) || ( user2 == userId && user1 );
                 channelObj.name = (usersData[dmUserId] || {}).displayname || channelObj.name;
+                channelObj.email = (usersData[dmUserId] || {}).email;
             })
         }
 
@@ -1232,6 +1245,36 @@ const getTotalUnreadMessagesCount = async (payload) => {
     }
 }
 
+const removeCurrentUserFromChannel = async (sessionObj, channelId) => {
+    const userId = sessionObj.userId;
+    const channel = await getOneChannel(channelId);
+    if (!channel) throw new Error('Channel Not Found');
+    let query = `UPDATE ${user.tableName} SET ${user.columnName.last_active_channel_id} = null WHERE ${user.columnName.id} = '${userId}' AND ${user.columnName.last_active_channel_id} = '${channelId}'`;
+    const result = await pool.query(query);
+    const workspaceId = channel[channelModel.columnName.workspace_id]
+    await removeUserFromChannel({
+        userId: userId,
+        channelId: channelId,
+        workspaceId: workspaceId,
+    });
+    io.to(workspaceId).emit('channelUserChange', {userIds: userId});
+}
+
+/**
+ * 
+ * @param {string} channelName 
+ * @param {string} workspaceId 
+ */
+const getChannelsByChannelName = async (channelName, workspaceId) => {
+    const query = ` \
+        SELECT id, name FROM ${channelModel.tableName} \
+        WHERE ${channelModel.columnName.name} = '${channelName}' AND \
+        ${channelModel.columnName.workspace_id} = '${workspaceId}';`
+    const channel = await pool.query(query);
+    console.log(channel);
+    return channel.rows;
+}
+
 module.exports = {
     getOneChannel,
     createChannel,
@@ -1254,4 +1297,6 @@ module.exports = {
     setPinMessage,
     removePinMessage,
     getTotalUnreadMessagesCount,
+    removeCurrentUserFromChannel,
+    getChannelsByChannelName,
 }

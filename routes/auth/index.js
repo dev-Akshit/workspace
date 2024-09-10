@@ -1,11 +1,13 @@
 const router = require('express').Router();
 const jwt = require('jsonwebtoken');
+const utils = require('../../utils');
 
 const configVars = require('../../config/configVars');
 const controllers = require('../../controllers');
 const emailService = require('../../services/emailService');
 const libs = require('../../lib');
 const middlewares = require('../../middlewares');
+const config = require('../../config/configVars');
 
 router.post('/login', async (req, res) => {
     try {
@@ -36,7 +38,7 @@ router.post('/login', async (req, res) => {
 
 router.post('/signup', async (req, res) => {
     try {
-        const {email, password, name} = req.body;
+        const {email, password, name, referToken} = req.body;
         if ( !email || !password || !name) {
             return res.status(403).json({error: `Invalid Payload name, email and passowrd required.`})
         };
@@ -49,10 +51,30 @@ router.post('/signup', async (req, res) => {
         }
         const encPassword = await libs.utils.encryptString(password);
         const user = await controllers.authController.signup({email, password: encPassword, name});
+        // name, userId, type = constants.workSpaceTypes.basicType, courseId
+        if (config.createDefaultWorkspace) {
+            const workspace = await controllers.workspaceController.createWorkSpace({
+                name: 'General',
+                type: libs.constants.workSpaceTypes.basicType,
+                userId: user.id,
+            });
+            await controllers.channelController.createChannel({
+                workspaceId: workspace.workspaceId,
+                userId: user.id,
+                name: 'General',
+            })
+        }
         const token = user.verification_token;
-        if(process.env.NODE_ENV !== 'local'){
+        if(config.emailVerificationRequired){
             const emailInstance = emailService.CreateEmailFactory({email: email, Type: libs.constants.emailType.NewUser, token: token}, user );
-            await emailInstance.sendEmail()
+            await emailInstance.sendEmail();
+        }
+        if(referToken){
+            const data = await utils.jwtToken.verifyToken(referToken, process.env.JWT_SECRET);
+            if(data.email === email){
+                data.userId = user.id;
+                const obj = await controllers.channelController.addUserToChannel(data);
+            }
         }
         return res.json({'status': libs.constants.statusToNumber.success});
     } catch (error) {

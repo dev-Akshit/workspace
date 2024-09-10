@@ -91,30 +91,44 @@ router.post('/updateProfile', async (req, res) => {
   try {
     const objToUpdate = {};
     if (req.body.profilePic) {
-      if (!validator.isURL(req.body.profilePic)) throw new Error(`Profile Picture `+ libs.messages.errorMessage.urlNotValid);
+      if (!validator.isURL(req.body.profilePic, { 
+        allow_trailing_dot: true,
+        allow_fragments: true,
+        allow_localhost: true,
+        
+      })) {
+        if (process.env.NODE_ENV !== "local" && req.body.profilePic.startsWith('http://localhost')) {
+          throw new Error(`Profile Picture `+ libs.messages.errorMessage.urlNotValid);
+        }
+      }  
       objToUpdate.profilePic = req.body.profilePic;
+    } else {
+      objToUpdate.profilePic = null;
     }
-
     if (req.body.username) {
+      if (!libs.regex.name.test(req.body.username)) throw new Error(libs.messages.errorMessage.userNameNotValid)
       objToUpdate.username = req.body.username;
     }
-
     if (req.body.password) {
       if (!libs.regex.password.test(req.body.password)) throw new Error(libs.messages.errorMessage.passwordIsNotValid)
-      objToUpdate.password = req.body.password;
+      if (!req.body.oldPassword) {
+        throw new Error(libs.messages.errorMessage.passwordIsNotValid);
+      }
+      const isOldPasswordCorrect = await userController.validateUserPassword(req.session.userId, req.body.oldPassword);
+      if (!isOldPasswordCorrect) {
+        throw new Error(libs.messages.errorMessage.confirmPasswordIsNotValid);
+      }
+      objToUpdate.password =  await libs.utils.encryptString(req.body.password);
     }
-
     await userController.updateUserProfile(req.session.userId, objToUpdate);
     if (objToUpdate.username) {
       req.session.displayname = objToUpdate.username;
     }
-
-    if (objToUpdate.profilePic) {
-      req.session.profilePic = objToUpdate.profilePic;
-    }
+    req.session.profilePic = objToUpdate.profilePic;
     return res.json({status: libs.constants.statusToNumber.success});
   } catch (error) {
     console.log("Error while updateing user profile", error);
+    return res.json({error: error?.message ?? error});
   }
 })
 

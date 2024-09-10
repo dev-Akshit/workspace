@@ -2,6 +2,9 @@ const router = require('express').Router();
 const utils = require('../lib/utils');
 const channelController = require('../controllers/channelController');
 const { userController } = require('../controllers');
+const jwtToken = require("../utils/jwtToken");
+const emailService = require('../services/emailService');
+const libs = require('../lib');
 
 /*
   Input Body - 
@@ -11,6 +14,10 @@ const { userController } = require('../controllers');
 */
 router.post('/createChannel', async (req, res) => {
     try {
+        const {name} = req.body;
+        if (name && !libs.regex.channelRegex.test(name) ) {
+          throw new Error("Channel name is not valid");
+        }
         let obj = await channelController.createChannel({...req.body, userId: req.session.userId});
         res.json(obj || {});        
     } catch (error) {
@@ -26,18 +33,51 @@ router.post('/createChannel', async (req, res) => {
       channelId: UUID(String),
 */
 router.post('/addUserToChannel', async (req, res) => {
-    try {
-				req.body = {
-					...req.body,
-					createdBy: req.session.userId,
-					userId: req.body.userIdToAdd,
-				}
-        let obj = await channelController.addUserToChannel(req.body);
-        res.json(obj || {});        
-    } catch (error) {
-      console.log("Error in addUserToChannel. Error = ", error);
-      res.json({'error': error.message});  
+  try {
+    console.log("invite to channel", req.body);
+    let data={
+      email : req.body.userEmail,
+      workspaceId : req.body.workspaceId,
+      channelId : req.body.channelId,
+      createdBy: req.session.userId,
     }
+    if(!data.email || !data.workspaceId || !data.channelId){
+      throw new Error("Incomplete data to Add user to channel")
+    }
+    const invitedUserData = await userController.isUserExist({email: data.email});
+    if(invitedUserData){
+      data = {...data, userIdToAdd: invitedUserData.id};
+      const token = await jwtToken.generateToken(data, process.env.JWT_SECRET);
+      const emailInstance = emailService.CreateEmailFactory(
+        {
+          email: req.body.userEmail,
+          userIdToAdd: invitedUserData.id, 
+          workspaceId : req.body.workspaceId,
+          channelId : req.body.channelId,  
+          Type: libs.constants.emailType.ChannelInvite, 
+          token: token
+        } , invitedUserData );
+        await emailInstance.sendEmail();
+
+        res.json({msg: "Invite successfully"} || {});        
+    } else {
+      const token = await jwtToken.generateToken(data, process.env.JWT_SECRET);
+      const emailInstance = emailService.CreateEmailFactory(
+        {
+          email: req.body.userEmail,
+          workspaceId : req.body.workspaceId,
+          channelId : req.body.channelId,  
+          Type: libs.constants.emailType.UserAndChannelInvite, 
+          token: token
+        } , data );
+      await emailInstance.sendEmail();
+
+      res.json({msg: "Refer successfully"} || {});
+    }
+  } catch (error) {
+    console.log("Error in inviteToChannel. Error = ", error);
+    res.json({'error': error.message});  
+  } 
 });
 
 /*
@@ -117,6 +157,10 @@ router.post('/setLastRead', async (req, res) => {
 */
 router.post('/updateName', async (req,res) => {
   try {
+    const { updatedChannelName } = req.body;
+    if (!updatedChannelName || !libs.regex.channelRegex.test(updatedChannelName)) {
+      throw new Error('Channel Name is not valid');
+    }
     let obj = await channelController.editChannelName({...req.body});
     res.json(obj || {});
   } catch (error) {
@@ -163,5 +207,17 @@ router.get('/getChannelDetail/:channelId', async (req,res) => {
     res.json({'error':error.message});
   }
 })
+
+
+router.get('/leaveChannel/:channelId', async (req, res) => {
+  try {
+    const { channelId } = req.params;
+    await channelController.removeCurrentUserFromChannel(req.session, channelId);
+    return res.json({message: 'Success'});
+  } catch (error) {
+    console.log("Error while leaving Channel = ", error);
+    return res.json({'error': error.message});
+  }
+});
 
 module.exports = router;

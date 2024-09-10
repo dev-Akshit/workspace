@@ -196,7 +196,8 @@ const getUsersData = async (userIds = []) => {
             [   
                 userModel.columnName.id,
                 userModel.columnName.displayname,
-                userModel.columnName.profilePic
+                userModel.columnName.profilePic,
+                userModel.columnName.email,
             ], condition
         );
         usersObjArr.map(userObj => {
@@ -356,6 +357,15 @@ const validateResetPasswordToken = async (token) => {
     return userId;
 }
 
+const validateUserPassword = async (userId, password) => {
+    const condition = `WHERE ${userModel.columnName.id} = '${userId}'`;
+    const user = await services.userService.getSingleUserFromDb([userModel.columnName.password], condition);
+    if (!user) {
+        throw new Error('User not found');
+    }
+    return await libs.utils.checkIfValidEncryption(user[userModel.columnName.password], password);
+}
+
 module.exports = {
     addUsers,
     isUserExist,
@@ -366,5 +376,6 @@ module.exports = {
     updateUsersData,
     updateUserProfile,
     forgotPassword,
+    validateUserPassword,
     validateResetPasswordToken,
 }
