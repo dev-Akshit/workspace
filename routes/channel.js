@@ -84,6 +84,25 @@ router.post('/addUserToChannel', async (req, res) => {
   Input Body - 
       workspaceId: UUID(String),
       channelId: UUID(String),
+      lastRead: TimeStamp(Number)
+*/
+router.post('/deleteChannel', async (req, res) => {
+  try {
+      const {channelId, workspaceId} = req.body;
+      if(!channelId) throw new Error('ChannelId is null');
+      if(!workspaceId) throw new Error('WorkspaceId is null');
+      let obj = await channelController.deleteChannel({...req.body, userId: req.session.userId});
+      res.json(obj);
+  } catch (error) {
+      console.log("Error in deleting the channel. Error =", error);
+      res.json({error: error.message});
+  }
+})
+
+/*
+  Input Body - 
+      workspaceId: UUID(String),
+      channelId: UUID(String),
       batchId: ObjectId(String),
 */
 router.post('/addBatchToChannel', async (req, res) => {
@@ -219,5 +238,26 @@ router.get('/leaveChannel/:channelId', async (req, res) => {
     return res.json({'error': error.message});
   }
 });
+
+router.post('/removeUserFromChannel', async (req, res) => {
+  try {
+    const {channelId, userId, workspaceId} = req.body;
+    if(!channelId) throw new Error("channelId is null");
+    if(!userId) throw new Error("UserId is null");
+    if(!workspaceId) throw new Error("WorkspaceId is null");
+
+    const channel = await channelController.getOneChannel(channelId);
+    if(channel.created_by !== req.session.userId) {
+      return res.json({'error': "Only admins are allowed to remove user"});
+    }
+    
+    await channelController.removeUserByChannelAdmin({...req.body});
+
+    return res.json({message: 'Success'});
+  } catch (error) {
+    console.log("Error while remove user from channel");
+    return res.json({'error': error.message});
+  }
+})
 
 module.exports = router;

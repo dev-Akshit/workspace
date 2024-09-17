@@ -14,6 +14,7 @@ const {cqBackendUrl, redisPassword} = require("../config/configVars");
 
 const {userModel, workspaceModel, channelModel, userWorkspaceDataModel, userChannelDataModel, messageModel, notificationModel} = require("../models");
 const userController = require('../controllers/userController');
+const workspaceController = require('../controllers/workspaceController');
 const notificationController = require('../controllers/notificationController');
 
 const redisService = require('../services/redisService');
@@ -865,7 +866,9 @@ const listChannels = async (payload) => {
                         ${userWorkspaceDataModel.columnName.user_id} = '${userId}' \
                 )) AND \
                 ${channelModel.columnName.state} = ${constants.state.active} AND \
-                ${userChannelDataModel.columnName.user_id} = '${userId}' \
+                ${userChannelDataModel.columnName.user_id} = '${userId}' AND \
+                ${channelModel.tableName}.${channelModel.columnName.deleted_at} is NULL AND\
+                ${channelModel.tableName}.${channelModel.columnName.deleted_by} is NULL \
             `;
         
         //console.log("q1 = ", q1);
@@ -1115,6 +1118,77 @@ const getUserChannelDataObj = async (payload) => {
     }
 }
 
+const deleteChannel = async (payload) => {
+    const client = await pool.connect();
+    let q, res;
+    try {
+        let { userId, channelId, workspaceId} = payload;
+        if ( ! userId )             throw new Error("User Id is null");
+        if ( ! channelId )               throw new Error("Channel Id is null");
+        if ( ! workspaceId )               throw new Error("Workspace Id is null");
+
+        //Query to check whether the channel id is correct and to check whether the user is admin or not
+        res = await getOneChannel(channelId);
+        const userIdsArray= res.user_ids;
+        if( !res ) throw new Error("Channel Id is incorrect");
+
+        if( res.deleted_at || res.deleted_by ) throw new Error("Channel is already deleted");
+
+        let admin = res.created_by;
+        if( admin != userId ) throw new Error("User is not Admin");
+
+        // Disabled into channel table
+        q = `UPDATE \
+                ${channelModel.tableName} \
+            SET \
+                ${channelModel.columnName.deleted_at} = '${Date.now()}', \
+                ${channelModel.columnName.deleted_by} = '${userId}' \
+            WHERE \
+                ${channelModel.columnName.id} = '${channelId}' \
+            `;
+        //console.log("q1 = ",q);
+        res = await client.query(q);
+        // console.log("res",res);
+        if ( !res )    throw new Error("Channel is not deleted");
+        
+        userIdsArray.forEach((userId) => {
+            removeUserFromChannel({channelId, workspaceId, userId})
+            .catch((error) =>{
+                console.log("Error in remove user from channel");
+            });
+        });
+        
+        q = `SELECT \
+                ${userWorkspaceDataModel.columnName.channel_ids} \
+            FROM \
+                ${userWorkspaceDataModel.tableName} \
+            WHERE \ 
+                ${userWorkspaceDataModel.columnName.user_id} = '${userId}' AND \
+                ${userWorkspaceDataModel.columnName.workspace_id} = '${workspaceId}' \
+        `;
+        res = await client.query(q);
+
+        if(!res) throw new Error("Something went wrong");
+        
+        const id = res && res.rows && res.rows.length && res.rows[0] && res.rows[0][userWorkspaceDataModel.columnName.channel_ids].length;
+        const lastActiveWorkspaceId = id === 0 ? null : `${workspaceId}`;
+
+        // query to set last active channel id to null and set workspace id to null if the deleted channel is the last channel of the workspace
+        const rawCondition = `WHERE ${userModel.columnName.last_active_channel_id} = '${channelId}'`;
+        const dataToSet = {last_active_channel_id : null, last_active_workspace_id: lastActiveWorkspaceId};
+        res = await userService.updateUserDB(dataToSet, rawCondition);
+        
+        if ( !res )    throw new Error("Something went wrong");
+        
+        io.to(workspaceId).emit('deleteChannel', payload);
+        return {msg: 'Deleted Successfully'};
+
+    } catch (error) {
+        console.log("Error in deleteChannel. Error = ", error);
+        throw error;
+    }
+}
+
 const setChannelWritePermissionValue = async (payload = {}) => {
     const {channelId, permissionValue} = payload;
     if ( ! channelId )          throw new Error("ChannelId is null");
@@ -1262,6 +1336,55 @@ const removeCurrentUserFromChannel = async (sessionObj, channelId) => {
 
 /**
  * 
+ * @param {string} userId 
+ * @param {string} channelId
+ * @param {string} workspaceId
+ */
+const removeUserByChannelAdmin = async (payload) => {
+    const {userId, channelId, workspaceId} = payload
+    if(!userId) throw new Error("User id is null");
+    if(!channelId) throw new Error("Channel id is null");
+    if(!workspaceId) throw new Error("Workspace id is null");
+
+    const client = await pool.connect();
+    let q, res;
+    try{
+        q = `SELECT \
+            ${userWorkspaceDataModel.columnName.channel_ids} \
+                FROM ${userWorkspaceDataModel.tableName} \
+                WHERE \ 
+                ${userWorkspaceDataModel.columnName.user_id} = '${userId}' AND \
+             ${userWorkspaceDataModel.columnName.workspace_id} = '${workspaceId}' \
+            `;
+        res = await client.query(q);
+    
+        if(!res) throw new Error("Something went wrong");
+        
+        const id = res && res.rows && res.rows.length && res.rows[0] && res.rows[0][userWorkspaceDataModel.columnName.channel_ids].length;
+        const lastActiveWorkspaceId = id === 0 ? null : `${workspaceId}`;
+
+        // query to set last active channel id to null and set last active workspace to null if the deleted channel is the last channel of the workspace
+        const rawCondition = `where ${userModel.columnName.last_active_channel_id} = '${channelId}'`;
+        const dataToSet = {last_active_channel_id : null, last_active_workspace_id: lastActiveWorkspaceId};
+        res = await userService.updateUserDB(dataToSet, rawCondition);
+        
+        if(!res) throw new Error("Something went wrong");
+
+        await removeUserFromChannel({
+            userId: userId,
+            channelId: channelId,
+            workspaceId: workspaceId,
+        });
+
+        io.to(workspaceId).emit('removeUserByChannelAdmin', {userIds: userId, channelId: channelId, workspaceId: workspaceId});
+    } catch (error) {
+        console.log("Error in removeUserByChannelAdmin. Error = ", error);
+        throw error;
+    }
+}
+
+/**
+ * 
  * @param {string} channelName 
  * @param {string} workspaceId 
  */
@@ -1292,6 +1415,7 @@ module.exports = {
     addChannelInActiveChannelsSet,
     removeChannelFromActiveChannelsSet,
     getUserChannelDataObj,
+    deleteChannel,
     setChannelWritePermissionValue,
     getChannelWritePermissionValue,
     setPinMessage,
@@ -1299,4 +1423,5 @@ module.exports = {
     getTotalUnreadMessagesCount,
     removeCurrentUserFromChannel,
     getChannelsByChannelName,
+    removeUserByChannelAdmin
 }
