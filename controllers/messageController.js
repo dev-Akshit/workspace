@@ -12,6 +12,7 @@ const notificationController = require('./notificationController');
 const userController = require('./userController');
 
 const redisService = require('../services/redisService');
+const channelController = require('./channelController');
 
 const incrTotalMsgCountOfChannelInRedis = async (channelId) => {
     try {
@@ -1052,13 +1053,15 @@ const getMessageStreamsLengthOfAllChannels = async () => {
 const setIsResolvedOfMessage = async function (payload = {}) {
     try {
         //isResolved should be either 0 or 1.
-        const { workspaceId, channelId, messageId, userId, isResolved } = payload;
+        const { workspaceId, channelId, messageId, userId, isResolved, createdAt = Date.now() } = payload;
         if ( ! workspaceId )    throw new Error("WorkspaceId is null");
         if ( ! channelId )      throw new Error("channelId is null");
         if ( ! messageId )      throw new Error("messageId is null");
         if ( ! userId )         throw new Error("userId is null");
         // if ( ! Object(payload).hasOwnProperty(isResolved) )     throw new Error("isResolved not found");
 
+        let redisPipeline = global.redisClient.pipeline();
+        
         let messageObj = await redisService.redis('hgetall', `${redisKeys.messageDataHash}:${messageId}`);
         if ( messageObj && Object.keys(messageObj).length ) {
             await redisService.redis('hset', `${redisKeys.messageDataHash}:${messageId}`, redisKeys.isResolved, isResolved);
@@ -1071,7 +1074,36 @@ const setIsResolvedOfMessage = async function (payload = {}) {
             await pool.query(q);
         }
         
+        const createdBy = messageObj?.userId;
+
+        if(createdBy !== userId){
+            redisPipeline.xadd(utils.getUserActivityRedisStreamName(workspaceId, userId), createdAt,
+                redisKeys.id, uuidv4(),
+                redisKeys.workspaceId, workspaceId,
+                redisKeys.channelId, channelId,
+                redisKeys.messageId, messageId,
+                redisKeys.userId, userId,
+                redisKeys.type, constants.userActivityType.resolved,
+                redisKeys.createdAt, createdAt,
+            );
+            redisPipeline.sadd(redisKeys.activeUsersActivityStreamSet, `${workspaceId}:${userId}`);
+        }
+        
+        redisPipeline.xadd(utils.getUserActivityRedisStreamName(workspaceId, createdBy), createdAt,
+            redisKeys.id, uuidv4(),
+            redisKeys.workspaceId, workspaceId,
+            redisKeys.channelId, channelId,
+            redisKeys.messageId, messageId,
+            redisKeys.userId, createdBy,
+            redisKeys.type, constants.userActivityType.resolved,
+            redisKeys.createdAt, createdAt,
+        );
+        redisPipeline.sadd(redisKeys.activeUsersActivityStreamSet, `${workspaceId}:${userId}`);
+        
+        await redisPipeline.exec();
+        
         io.to(channelId).emit('isResolved', payload);
+        
         return {msg: 'isResolved updated successfully'};
         
     } catch (error) {
@@ -1083,12 +1115,13 @@ const setIsResolvedOfMessage = async function (payload = {}) {
 const setIsDiscussionRequiredOfMessage = async function (payload = {}) {
     try {
         //isResolved should be either 0 or 1.
-        const { workspaceId, channelId, messageId, userId, isDiscussionRequired } = payload;
+        const { workspaceId, channelId, messageId, userId, isDiscussionRequired, createdAt = Date.now() } = payload;
         if ( ! workspaceId )    throw new Error("WorkspaceId is null");
         if ( ! channelId )      throw new Error("channelId is null");
         if ( ! messageId )      throw new Error("messageId is null");
         if ( ! userId )         throw new Error("userId is null");
         // if ( ! Object(payload).hasOwnProperty(isResolved) )     throw new Error("isResolved not found");
+        let redisPipeline = global.redisClient.pipeline();
 
         let messageObj = await redisService.redis('hgetall', `${redisKeys.messageDataHash}:${messageId}`);
         if ( messageObj && Object.keys(messageObj).length) {
@@ -1102,7 +1135,21 @@ const setIsDiscussionRequiredOfMessage = async function (payload = {}) {
             await pool.query(q);
         }
 
+        redisPipeline.xadd(utils.getUserActivityRedisStreamName(workspaceId, userId), createdAt,
+            redisKeys.id, uuidv4(),
+            redisKeys.workspaceId, workspaceId,
+            redisKeys.channelId, channelId,
+            redisKeys.messageId, messageId,
+            redisKeys.userId, userId,
+            redisKeys.type, constants.userActivityType.toDiscuss,
+            redisKeys.createdAt, createdAt,
+        );
+        redisPipeline.sadd(redisKeys.activeUsersActivityStreamSet, `${workspaceId}:${userId}`);
+
+        await redisPipeline.exec();
+                
         io.to(channelId).emit('isDiscussionRequired', payload);
+
         return {msg: 'isDiscussionRequired updated successfully'};
         
     } catch (error) {
