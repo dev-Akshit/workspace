@@ -207,7 +207,7 @@ const getUsersData = async (userIds = []) => {
                 [constants.redisKeys.displayname]: userObj.displayname,
                 [constants.redisKeys.role]: userObj.role,
                 [constants.redisKeys.email]: userObj.email,
-                [constants.redisKeys.profilePic]: userObj.profilePic,
+                [constants.redisKeys.profilePic]: userObj.profile_pic,
             }
             usersData[userId] = obj;
             redisService.redis('hmset', `${constants.redisKeys.userData}:${userId}`, obj);
