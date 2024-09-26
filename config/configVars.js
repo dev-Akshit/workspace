@@ -60,6 +60,7 @@ const configFromEnv = {
     emailVerificationRequired: process.env.EMAIL_VERIFICATION_REQUIRED == 1,
     createDefaultWorkspace: process.env.CREATE_DEFAULT_WORKSPACE == 1,
     uploadToCloud: process.env.UPLOAD_TO_CLOUD == 1,
+    jwtSecret: process.env.JWT_SECRET,
 }
 
 const config = Object.freeze({...baseConfig, ...configFromEnv});

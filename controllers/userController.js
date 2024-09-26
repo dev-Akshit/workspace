@@ -286,8 +286,8 @@ const updateUsersData = async  (criteriaObj, objToSet) => {
 const updateUserProfile = async (userId, userUpdateObj) => {
     if (!userId) throw new Error(libs.messages.errorMessage.userIdNotPresent);
     const updateObj = {}
-    if (userUpdateObj.profilePic) {
-        updateObj[userModel.columnName.profilePic] = userUpdateObj.profilePic;
+    if ( Object.prototype.hasOwnProperty(userUpdateObj, 'profilePic')) {
+        updateObj[userModel.columnName.profilePic] = userUpdateObj.profilePic ?? null;
     }
     if (userUpdateObj.username) {
         updateObj[userModel.columnName.displayname] = userUpdateObj.username;

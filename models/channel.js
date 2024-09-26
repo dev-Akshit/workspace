@@ -17,5 +17,6 @@ module.exports = {
         'updated_at': 'updated_at',
         'deleted_at': 'deleted_at',
         'deleted_by': 'deleted_by',
+        'invite_link': 'invite_link',
     }
 }

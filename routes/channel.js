@@ -5,6 +5,7 @@ const { userController } = require('../controllers');
 const jwtToken = require("../utils/jwtToken");
 const emailService = require('../services/emailService');
 const libs = require('../lib');
+const config = require('../config/configVars');
 
 /*
   Input Body - 
@@ -257,6 +258,48 @@ router.post('/removeUserFromChannel', async (req, res) => {
   } catch (error) {
     console.log("Error while remove user from channel");
     return res.json({'error': error.message});
+  }
+})
+
+router.post('/editInviteLink', async (req, res) => {
+  try {
+    const { channelId, inviteLinkSuffix, workspaceId } = req.body;
+    if(!channelId) throw new Error("channelId is null");
+    if ( !libs.regex.name.test(inviteLinkSuffix) ) {
+      return res.status(400).json({error: `Link Suffix is not valid.`});
+    }
+    const userId = req.session.userId;
+    const inviteLink=`${config.frontendURL}/customLinkChannelJoin/${inviteLinkSuffix}`;
+    await channelController.editInviteLink({channelId, inviteLink, userId});
+    return res.json({message: 'Success', inviteLink});
+  } catch (error){
+    console.log("Error while update the channel invite link", error);
+    return res.json({'error': error.message});
+  }
+})
+
+router.post('/customLinkChannelJoin', async (req, res) => {
+  try {
+    const suffix = req.body.suffix;
+    const inviteLink=`${config.frontendURL}/customLinkChannelJoin/${suffix}`;
+    const obj = {attributeName: 'invite_link', attributeValue: inviteLink};
+    const channel = await channelController.getChannelByUniqueAttributeValue(obj);
+    const data = {
+      userId: req.session.userId,
+      createdBy: channel.created_by,
+      channelId: channel.id,
+      workspaceId: channel.workspace_id
+    } ;  
+    let resultObj = await channelController.addUserToChannel(data);
+    await userController.setLastActiveData({
+      workspaceId: data.workspaceId,
+      userId: req.session.userId,
+      channelId: data.channelId,
+    })
+    return res.json({message: 'Success'});
+  } catch (error) {
+    console.log("Error in addUserToChannel. Error = ", error);
+    res.json({'error': error.message});  
   }
 })
 

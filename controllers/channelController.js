@@ -28,6 +28,23 @@ const getOneChannel = async (channelId) => {
     return channelObj;
 }
 
+const getChannelByUniqueAttributeValue = async ({attributeName, attributeValue}) => {
+    try{
+        if(!attributeName || !attributeValue) throw new Error("Invalid get channel attribute");
+
+        //query to select the tuple on variable based condition
+        const q = `SELECT * FROM ${channelModel.tableName} WHERE ${channelModel.columnName[attributeName]} = '${attributeValue}'`;
+        const res = await pool.query(q);
+
+        const attributeObj = (res && res.rows && res.rows.length && res.rows[0]) || {};
+
+        return attributeObj;
+    } catch (error) {
+        console.log("Error in getChannelByUniqueAttributeValue. Error = ", error);
+        throw error;
+    }
+}
+
 const getTotalMsgCountOfChannel = async (payload) => {
     try {
         const {channelId, setExpiry, useCache = true} = payload;
@@ -854,6 +871,7 @@ const listChannels = async (payload) => {
                 ${channelModel.tableName}.${channelModel.columnName.write_permission_type}, \
                 ${channelModel.tableName}.${channelModel.columnName.pinned_message_id}, \
                 ${channelModel.tableName}.${channelModel.columnName.pinned_by}, \
+                ${channelModel.tableName}.${channelModel.columnName.invite_link}, \
                 ${userChannelDataModel.tableName}.${userChannelDataModel.columnName.total_read}, \
                 ${userChannelDataModel.tableName}.${userChannelDataModel.columnName.last_seen} \
             FROM ${channelModel.tableName} \
@@ -940,6 +958,32 @@ const editChannelName = async (payload) =>{
         return {msg:'Edited',channelId};
     } catch (error) {
         console.log("Error in edit channel name = ",error);
+        throw error;
+    }
+}
+
+const editInviteLink = async (payload) =>{
+    try {
+        let {channelId, userId, inviteLink} = payload;
+        if( ! channelId )              throw new Error("ChannelId is null");
+        if( ! userId )     throw new Error("userId is null");
+
+        // query to update the channel invite link
+        const q1 = `UPDATE ${channelModel.tableName} \
+            SET \
+                ${channelModel.columnName.invite_link} = '${inviteLink}' \
+            WHERE \
+                ${channelModel.columnName.id} = '${channelId}' AND\
+                ${channelModel.columnName.created_by} = '${userId}' \
+        `
+
+        const res1 = await pool.query(q1);
+
+        //console.log(res1);
+
+        return {msg:'Edited',channelId};
+    } catch (error) {
+        console.log("Error in edit invite link ",error);
         throw error;
     }
 }
@@ -1423,5 +1467,7 @@ module.exports = {
     getTotalUnreadMessagesCount,
     removeCurrentUserFromChannel,
     getChannelsByChannelName,
-    removeUserByChannelAdmin
+    removeUserByChannelAdmin,
+    editInviteLink,
+    getChannelByUniqueAttributeValue,
 }

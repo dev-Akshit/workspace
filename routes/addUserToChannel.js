@@ -13,7 +13,7 @@ const config = require('../config/configVars');
 */
 router.get('/addUserToChannel', async (req, res) => {
     const token = req.query.token;
-    let data = await utils.jwtToken.verifyToken(token, process.env.JWT_SECRET);
+    let data = await utils.jwtToken.verifyToken(token, config.jwtSecret);
     const { workspaceId, channelId, userIdToAdd: userId  } = data; 
     try {
     
