@@ -15,6 +15,7 @@ const createSessionObj = (user) => {
     session.role = user[userModel.columnName.role];
     session.profilePic = user[userModel.columnName.profilePic];
     session.displayname = user[userModel.columnName.displayname];
+    session.status = user[userModel.columnName.status];
     return libs.utils.createSessionObj(session);
 }
 

@@ -6,6 +6,7 @@ const jwtToken = require("../utils/jwtToken");
 const emailService = require('../services/emailService');
 const libs = require('../lib');
 const config = require('../config/configVars');
+const controllers = require('../controllers');
 
 /*
   Input Body - 
@@ -300,6 +301,18 @@ router.post('/customLinkChannelJoin', async (req, res) => {
   } catch (error) {
     console.log("Error in addUserToChannel. Error = ", error);
     res.json({'error': error.message});  
+  }
+})
+
+router.post('/channelUsersData', async (req, res) => {
+  try {
+    const userIdsSet = req.body.userIds;
+    let usersData=[];
+    if(userIdsSet.length) usersData = await controllers.userController.getUsersData(userIdsSet);
+    return res.json({usersData});
+  } catch (error) {
+    console.log("Error in channel users data. Error =",error);
+    res.json({'error': error.message});
   }
 })
 

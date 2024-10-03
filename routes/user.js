@@ -4,6 +4,7 @@ const validator = require('validator');
 const libs = require('../lib');
 const userController = require('../controllers/userController');
 const userActivityController = require('../controllers/userActivityController');
+const controllers = require('../controllers');
 
 /*
   Input Body - 
@@ -109,6 +110,10 @@ router.post('/updateProfile', async (req, res) => {
       if (!libs.regex.name.test(req.body.username)) throw new Error(libs.messages.errorMessage.userNameNotValid)
       objToUpdate.username = req.body.username;
     }
+    if (req.body.status) {
+      if (req.body.status.length>100) throw new Error(libs.messages.errorMessage.statusNotValid);
+      objToUpdate.status = req.body.status;
+    }
     if (req.body.password) {
       if (!libs.regex.password.test(req.body.password)) throw new Error(libs.messages.errorMessage.passwordIsNotValid)
       if (!req.body.oldPassword) {
@@ -124,7 +129,14 @@ router.post('/updateProfile', async (req, res) => {
     if (objToUpdate.username) {
       req.session.displayname = objToUpdate.username;
     }
+    if (objToUpdate.status) {
+      req.session.status = objToUpdate.status;
+    }
     req.session.profilePic = objToUpdate.profilePic;
+    const userData = await controllers.userController.getUserChannelsAndWorkspace(req.session.userId);
+    userData.workspace_ids.forEach((workspaceId) => {
+      io.to(workspaceId).emit('channelUserDataChange', workspaceId);
+    })
     return res.json({status: libs.constants.statusToNumber.success});
   } catch (error) {
     console.log("Error while updateing user profile", error);

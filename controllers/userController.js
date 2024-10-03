@@ -198,6 +198,7 @@ const getUsersData = async (userIds = []) => {
                 userModel.columnName.displayname,
                 userModel.columnName.profilePic,
                 userModel.columnName.email,
+                userModel.columnName.status,
             ], condition
         );
         usersObjArr.map(userObj => {
@@ -208,6 +209,7 @@ const getUsersData = async (userIds = []) => {
                 [constants.redisKeys.role]: userObj.role,
                 [constants.redisKeys.email]: userObj.email,
                 [constants.redisKeys.profilePic]: userObj.profile_pic,
+                [constants.redisKeys.status]: userObj.status,
             }
             usersData[userId] = obj;
             redisService.redis('hmset', `${constants.redisKeys.userData}:${userId}`, obj);
@@ -286,7 +288,7 @@ const updateUsersData = async  (criteriaObj, objToSet) => {
 const updateUserProfile = async (userId, userUpdateObj) => {
     if (!userId) throw new Error(libs.messages.errorMessage.userIdNotPresent);
     const updateObj = {}
-    if ( Object.prototype.hasOwnProperty(userUpdateObj, 'profilePic')) {
+    if ( Object.prototype.hasOwnProperty.call(userUpdateObj, 'profilePic')) {
         updateObj[userModel.columnName.profilePic] = userUpdateObj.profilePic ?? null;
     }
     if (userUpdateObj.username) {
@@ -294,6 +296,9 @@ const updateUserProfile = async (userId, userUpdateObj) => {
     }
     if (userUpdateObj.password) {
         updateObj[userModel.columnName.password] = userUpdateObj.password;
+    }
+    if (userUpdateObj.status) {
+        updateObj[userModel.columnName.status] = userUpdateObj.status;
     }
     if (userUpdateObj.passwordResetToken !== undefined) {
         updateObj[userModel.columnName.password_reset_token] = userUpdateObj.passwordResetToken;
@@ -366,6 +371,21 @@ const validateUserPassword = async (userId, password) => {
     return await libs.utils.checkIfValidEncryption(user[userModel.columnName.password], password);
 }
 
+const getUserChannelsAndWorkspace = async (userId) => {
+    //query to get the channel ids and workspace ids where user is present
+    const q = `SELECT ${userModel.columnName.channel_ids}, ${userModel.columnName.workspace_ids} \
+                FROM ${userModel.tableName} \
+                WHERE ${userModel.columnName.id} = '${userId}' \
+            `;
+    //console.log(q);
+    const res = await postgres.query(q);
+    // console.log(result);
+    if ( !res ) {
+        throw new Error("Something went wrong. Please try again.");
+    }
+    return res.rows[0];
+}
+
 module.exports = {
     addUsers,
     isUserExist,
@@ -378,4 +398,5 @@ module.exports = {
     forgotPassword,
     validateUserPassword,
     validateResetPasswordToken,
+    getUserChannelsAndWorkspace,
 }

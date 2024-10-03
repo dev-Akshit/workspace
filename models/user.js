@@ -19,5 +19,6 @@ module.exports = {
         'deleted_at': 'deleted_at',
         'deleted_by': 'deleted_by',
         'last_notification_seen': 'last_notification_seen',
+        'status': 'status',
     }
 }
