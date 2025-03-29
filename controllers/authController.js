@@ -3,7 +3,8 @@ const crypto = require('crypto');
 
 const user = require("../models/user");
 const services = require("../services");
-const { userService } = require("../services")
+const { userService } = require("../services");
+const jwtToken = require('../utils/jwtToken');
 const libs = require('../lib');
 const { userModel } = require('../models');
 const config = require('../config/configVars');
@@ -16,6 +17,7 @@ const createSessionObj = (user) => {
     session.profilePic = user[userModel.columnName.profilePic];
     session.displayname = user[userModel.columnName.displayname];
     session.status = user[userModel.columnName.status];
+    // session.activeStatus = false;
     return libs.utils.createSessionObj(session);
 }
 
@@ -73,6 +75,19 @@ const login = async (payload, byPassPasswordCheck) => {
         'set',`${libs.constants.sessionPrefix}:${sessionObj.sid}`,
         JSON.stringify(sessionObj), 'EX', libs.constants.sessionExpireTime_Seconds,
     );
+    
+    const loggedInUsersKey = 'logged_in_users';
+    const loginInstance = `${user.id}:${sessionObj.sid}`;
+    await services.redisService.sessionRedis(
+        'lpush', 
+        loggedInUsersKey,
+        loginInstance
+    );
+    await services.redisService.sessionRedis(
+        'expire',
+        loggedInUsersKey,
+        900 
+    );
     return [token, longTermSessionToken];
 }
 
@@ -97,7 +112,7 @@ const signup = async ({email, password, name}) => {
     console.log(`Verification Token For ${email} = ${verificationToken}`);
     const resultOfUserCreation = await userService.createUserDB(
         {
-            [user.columnName.email]:email,
+            [user.columnName.email]: email,
             [user.columnName.displayname]: name,
             [user.columnName.password]: password,
             [user.columnName.verification_token]: verificationToken,
@@ -106,7 +121,7 @@ const signup = async ({email, password, name}) => {
     const result = resultOfUserCreation.rows?.[0];
     if ( !result ) {
         throw new Error('User Cannot Be Created');
-    } 
+    }
     return result;
 }
 
@@ -121,9 +136,9 @@ const verifyAccount = async (token) => {
 const authenticateSession = async function ( token ) {
     try {
         const userData = jwt.decode(token);
-        const {id: userId, sid} = userData
-        if ( ! sid )        throw new Error("Session id is null");
-        if ( ! userId )     throw new Error("User id is null");
+        const { id: userId, sid } = userData
+        if (!sid) throw new Error("Session id is null");
+        if (!userId) throw new Error("User id is null");
 
         const sessionKey = `${libs.constants.sessionPrefix}:${sid}`;
         const sessionStr = await services.redisService.sessionRedis('get', sessionKey);
@@ -131,8 +146,8 @@ const authenticateSession = async function ( token ) {
 
         services.redisService.sessionRedis('expire', sessionKey, libs.constants.sessionExpireTime_Seconds);
         const sessionObj = JSON.parse(sessionStr);
-        if ( sessionObj && sessionObj.userId == userId )    return libs.utils.createSessionObj(sessionObj);
-        return ;
+        if (sessionObj && sessionObj.userId == userId) return libs.utils.createSessionObj(sessionObj);
+        return;
     } catch (error) {
         console.log("Error in authenticateSession. Error = ", error);
         return ;
